@@ -1,5 +1,6 @@
 """
-HTTP I/O layer: Cambridge API, DeepL translation, Unsplash/Pixabay images, media download.
+HTTP I/O layer: Cambridge API, DeepL translation, Unsplash/Pixabay images, media download,
+and puzzle-english.com video clips.
 
 All functions return None / empty list on failure — never raise unhandled exceptions.
 """
@@ -7,6 +8,8 @@ All functions return None / empty list on failure — never raise unhandled exce
 from __future__ import annotations
 
 import json
+import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,6 +22,7 @@ DEEPL_PRO_API = "https://api.deepl.com/v2/translate"
 YANDEX_DICT_API = "https://dictionary.yandex.net/api/v1/dicservice.json/lookup"
 UNSPLASH_API = "https://api.unsplash.com/search/photos"
 PIXABAY_API = "https://pixabay.com/api/"
+PUZZLE_ENGLISH_URL = "https://puzzle-english.com"
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +53,20 @@ class ImageResult:
 
 
 @dataclass
+class VideoClip:
+    url: str        # direct .mp4 URL
+    sentence_en: str = ""
+    sentence_ru: str = ""
+
+
+@dataclass
 class FetchResult:
     word: str
     definitions: list[DefinitionEntry] = field(default_factory=list)
     pronunciations: list[PronunciationEntry] = field(default_factory=list)
     translations: list[str] = field(default_factory=list)   # Russian options, pick one
     images: list[ImageResult] = field(default_factory=list)
+    video_clip: Optional[VideoClip] = None
     error: Optional[str] = None
 
 
@@ -111,7 +123,7 @@ def download_media(url: str, desired_name: str) -> Optional[str]:
     """
     import os
 
-    data = download_bytes(url)
+    data = download_bytes(url, timeout=30)
     if not data:
         return None
     try:
@@ -284,6 +296,89 @@ def fetch_images_pixabay(query: str, api_key: str) -> list[ImageResult]:
 
 
 # ---------------------------------------------------------------------------
+# Puzzle English video clips
+# ---------------------------------------------------------------------------
+
+def _browser_context_dir() -> str:
+    """Persistent Playwright context directory (saves login session across runs)."""
+    return os.path.join(os.path.dirname(__file__), ".browser_context")
+
+
+def _find_python_with_playwright(config: dict) -> Optional[str]:
+    """Return the path to a Python executable that has playwright installed.
+
+    Checks config key 'python_executable' first, then common locations.
+    """
+    import shutil
+    import subprocess
+
+    candidates = []
+    cfg_python = config.get("python_executable", "").strip()
+    if cfg_python:
+        candidates.append(cfg_python)
+    candidates += [
+        "/opt/homebrew/bin/python3",   # macOS Homebrew (Apple Silicon)
+        "/usr/local/bin/python3",       # macOS Homebrew (Intel)
+        "python3",
+        "python",
+    ]
+
+    for exe in candidates:
+        full = shutil.which(exe) or exe
+        try:
+            result = subprocess.run(
+                [full, "-c", "import playwright"],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return full
+        except Exception:
+            continue
+    return None
+
+
+def fetch_puzzle_video(word: str, config: dict) -> Optional[VideoClip]:
+    """Scrape a short video clip for *word* from puzzle-english.com.
+
+    Runs puzzle_scraper.py in a subprocess using a system Python that has
+    playwright installed (Anki's bundled Python does not have it).
+
+    Returns None when no suitable Python is found, no clip is found, or on
+    any error.
+    """
+    import subprocess
+
+    python_exe = _find_python_with_playwright(config)
+    if not python_exe:
+        return None
+
+    context_dir = _browser_context_dir()
+    os.makedirs(context_dir, exist_ok=True)
+
+    scraper = os.path.join(os.path.dirname(__file__), "puzzle_scraper.py")
+
+    try:
+        proc = subprocess.run(
+            [python_exe, scraper, word, context_dir],
+            capture_output=True,
+            text=True,
+            timeout=120,   # login flow may take a while
+        )
+        if proc.returncode != 0:
+            return None
+        data = json.loads(proc.stdout.strip())
+        if "error" in data or "url" not in data:
+            return None
+        return VideoClip(
+            url=data["url"],
+            sentence_en=data.get("sentence_en", ""),
+            sentence_ru=data.get("sentence_ru", ""),
+        )
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -334,4 +429,9 @@ def fetch_all(word: str, config: dict) -> FetchResult:
             img.thumbnail_data = download_bytes(img.thumbnail_url, timeout=8)
 
     result.images = images
+
+    # --- Video clip from puzzle-english.com ---
+    if config.get("puzzle_english_video", False):
+        result.video_clip = fetch_puzzle_video(word, config)
+
     return result

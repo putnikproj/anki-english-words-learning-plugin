@@ -162,6 +162,17 @@ def _on_data_ready(
                 'style="max-width:150px; border-radius:4px; margin-top:6px;">'
             )
 
+    # ---- Step 4b: Download puzzle-english video clip to Anki media ------------
+    video_tag = ""
+    if result.video_clip:
+        clip_url = result.video_clip.url
+        # Derive a stable filename from the URL's basename
+        clip_basename = clip_url.split("/")[-1].split("?")[0]  # e.g. 5008_360px.mp4
+        clip_filename = f"puzzle_{safe_word}_{clip_basename}"
+        stored_clip = fetcher.download_media(clip_url, clip_filename)
+        if stored_clip:
+            video_tag = f"[sound:{stored_clip}]"
+
     # ---- Step 5: Fill note fields ------------------------------------------
     note = editor.note
     overwrite = config.get("overwrite_existing_fields", True)
@@ -173,7 +184,7 @@ def _on_data_ready(
             return
         note.fields[idx] = value
 
-    # Definition field — text, optionally followed by the chosen image
+    # Definition field — text, optionally followed by image and/or video clip
     definition_html = chosen_def.text
     if img_html:
         definition_html += "<br>" + img_html
@@ -194,13 +205,14 @@ def _on_data_ready(
     elif result.translations:
         set_field(FIELD_TRANSLATION, result.translations[0])
 
-    # Expression field — append audio tags after the word
+    # Expression field — append audio + video tags after the word
     new_expr: str | None = None
-    if audio_tags:
+    all_sound_tags = audio_tags + (video_tag if video_tag else "")
+    if all_sound_tags:
         current = note.fields[FIELD_EXPRESSION]
         # Strip any existing sound tags so we don't duplicate them on re-run
         clean = re.sub(r"\[sound:[^\]]+\]", "", current).rstrip()
-        new_expr = clean + " " + audio_tags
+        new_expr = clean + " " + all_sound_tags
         note.fields[FIELD_EXPRESSION] = new_expr
 
     # ---- Step 6: Persist and refresh ---------------------------------------

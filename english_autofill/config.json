@@ -8,5 +8,7 @@
   "max_examples": 3,
   "cloze_number": 1,
   "target_note_type": "English expression (Cloze)",
-  "overwrite_existing_fields": true
+  "overwrite_existing_fields": true,
+  "puzzle_english_video": false,
+  "python_executable": ""
 }
