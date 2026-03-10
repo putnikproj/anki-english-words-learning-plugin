@@ -1,5 +1,14 @@
 # English Auto-fill — Configuration
 
+## yandex_dict_api_key
+Your Yandex Dictionary API key for Russian translation with **multiple options**.
+
+Get a free key (10,000 lookups/day) at https://yandex.com/dev/dictionary/
+
+When this key is set, the add-on shows a picker dialog with all available
+Russian translations (e.g. "лунатить", "ходить во сне") so you can choose
+the best one. DeepL is used as fallback when this key is absent.
+
 ## deepl_api_key
 Your DeepL API authentication key for Russian translation.
 

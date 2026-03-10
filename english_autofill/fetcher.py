@@ -16,6 +16,7 @@ from typing import Optional
 CAMBRIDGE_API_BASE = "https://cambridge-dictionary-api-delta.vercel.app/api/dictionary/en"
 DEEPL_FREE_API = "https://api-free.deepl.com/v2/translate"
 DEEPL_PRO_API = "https://api.deepl.com/v2/translate"
+YANDEX_DICT_API = "https://dictionary.yandex.net/api/v1/dicservice.json/lookup"
 UNSPLASH_API = "https://api.unsplash.com/search/photos"
 PIXABAY_API = "https://pixabay.com/api/"
 
@@ -52,7 +53,7 @@ class FetchResult:
     word: str
     definitions: list[DefinitionEntry] = field(default_factory=list)
     pronunciations: list[PronunciationEntry] = field(default_factory=list)
-    translation: Optional[str] = None
+    translations: list[str] = field(default_factory=list)   # Russian options, pick one
     images: list[ImageResult] = field(default_factory=list)
     error: Optional[str] = None
 
@@ -178,10 +179,46 @@ def fetch_cambridge(word: str) -> tuple[list[DefinitionEntry], list[Pronunciatio
 
 
 # ---------------------------------------------------------------------------
-# DeepL translation
+# Translation — Yandex Dictionary (multiple options) + DeepL (single fallback)
 # ---------------------------------------------------------------------------
 
+def fetch_translations_yandex(word: str, api_key: str) -> list[str]:
+    """Return a list of Russian translations via Yandex Dictionary API.
+
+    Free key (10 000 lookups/day): https://yandex.com/dev/dictionary/
+    Returns translations + synonyms deduplicated, in order of relevance.
+    """
+    if not api_key:
+        return []
+    url = (
+        f"{YANDEX_DICT_API}"
+        f"?key={api_key}&lang=en-ru&text={urllib.parse.quote(word)}&flags=4"
+    )
+    data = _get_json(url)
+    if not data or "def" not in data:
+        return []
+
+    seen: set[str] = set()
+    results: list[str] = []
+
+    for entry in data["def"]:
+        for tr in entry.get("tr", []):
+            t = tr.get("text", "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                results.append(t)
+            # Synonyms counted as additional options
+            for syn in tr.get("syn", []):
+                s = syn.get("text", "").strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    results.append(s)
+
+    return results
+
+
 def fetch_translation_deepl(word: str, api_key: str, free_tier: bool = True) -> Optional[str]:
+    """Single translation via DeepL (used as fallback when Yandex key is absent)."""
     if not api_key:
         return None
     endpoint = DEEPL_FREE_API if free_tier else DEEPL_PRO_API
@@ -259,11 +296,19 @@ def fetch_all(word: str, config: dict) -> FetchResult:
         result.error = error
         return result
 
-    # --- DeepL translation ---
+    # --- Translation: Yandex Dictionary (multiple) or DeepL (single fallback) ---
+    yandex_key = config.get("yandex_dict_api_key", "").strip()
     deepl_key = config.get("deepl_api_key", "").strip()
     deepl_free = config.get("deepl_free_tier", True)
-    if deepl_key:
-        result.translation = fetch_translation_deepl(word, deepl_key, deepl_free)
+
+    if yandex_key:
+        result.translations = fetch_translations_yandex(word, yandex_key)
+
+    # Fall back to DeepL if Yandex returned nothing
+    if not result.translations and deepl_key:
+        single = fetch_translation_deepl(word, deepl_key, deepl_free)
+        if single:
+            result.translations = [single]
 
     # --- Images ---
     provider = config.get("image_provider", "unsplash")

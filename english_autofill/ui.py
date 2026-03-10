@@ -1,7 +1,8 @@
 """
 Qt6 dialogs for the Auto-fill add-on.
 
-DefinitionPickerDialog — shown when multiple definitions exist.
+DefinitionPickerDialog  — shown when multiple definitions exist.
+TranslationPickerDialog — shown when multiple Russian translations exist.
 ImagePickerDialog       — thumbnail grid for choosing an image.
 """
 
@@ -70,6 +71,46 @@ class DefinitionPickerDialog(QDialog):
         if 0 <= row < len(self._definitions):
             return self._definitions[row]
         return self._definitions[0]
+
+
+# ---------------------------------------------------------------------------
+# Translation picker
+# ---------------------------------------------------------------------------
+
+class TranslationPickerDialog(QDialog):
+    """Present a list of Russian translation options and let the user pick one."""
+
+    def __init__(self, word: str, translations: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f'Select Russian translation for "{word}"')
+        self.setMinimumWidth(400)
+        self._translations = translations
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(
+            QLabel(f"Select the best Russian translation for <b>{word}</b>:")
+        )
+
+        self._list = QListWidget()
+        for t in translations:
+            self._list.addItem(QListWidgetItem(t))
+        self._list.setCurrentRow(0)
+        self._list.itemDoubleClicked.connect(self.accept)
+        layout.addWidget(self._list)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def chosen_translation(self) -> str:
+        """Return the selected translation, or the first if none selected."""
+        row = self._list.currentRow()
+        if 0 <= row < len(self._translations):
+            return self._translations[row]
+        return self._translations[0]
 
 
 # ---------------------------------------------------------------------------

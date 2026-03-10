@@ -1,1 +1,1 @@
-{"config": {"cloze_number": 1, "deepl_api_key": "", "deepl_free_tier": true, "image_provider": "unsplash", "max_examples": 3, "overwrite_existing_fields": true, "pixabay_api_key": "", "target_note_type": "English expression (Cloze)", "unsplash_access_key": ""}}
+{"config": {"cloze_number": 1, "deepl_api_key": "", "deepl_free_tier": true, "image_provider": "unsplash", "max_examples": 3, "overwrite_existing_fields": true, "pixabay_api_key": "", "target_note_type": "English expression (Cloze)", "unsplash_access_key": "", "yandex_dict_api_key": ""}}

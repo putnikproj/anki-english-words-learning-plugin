@@ -24,7 +24,7 @@ from aqt.utils import showWarning, tooltip
 
 from . import fetcher, formatter
 from .fetcher import FetchResult
-from .ui import DefinitionPickerDialog, ImagePickerDialog
+from .ui import DefinitionPickerDialog, ImagePickerDialog, TranslationPickerDialog
 
 # Field indices — change these if the note type field order differs
 FIELD_DEFINITION = 0
@@ -181,9 +181,13 @@ def _on_data_ready(
     if examples_html:
         set_field(FIELD_EXAMPLES, examples_html)
 
-    # Translation field
-    if result.translation:
-        set_field(FIELD_TRANSLATION, result.translation)
+    # Translation field — pick from multiple options or use the only one directly
+    if len(result.translations) > 1:
+        tr_dlg = TranslationPickerDialog(word, result.translations, editor.parentWindow)
+        if tr_dlg.exec() != QDialog.DialogCode.Rejected:
+            set_field(FIELD_TRANSLATION, tr_dlg.chosen_translation())
+    elif result.translations:
+        set_field(FIELD_TRANSLATION, result.translations[0])
 
     # Expression field — append audio tags (and optionally an image) after the word
     if audio_tags or img_html:
