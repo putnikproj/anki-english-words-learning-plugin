@@ -151,13 +151,15 @@ def _on_data_ready(
     # ---- Step 4: Download chosen image and store in media folder -----------
     img_html = ""
     if chosen_image_url:
-        ext = chosen_image_url.split("?")[0].rsplit(".", 1)[-1] or "jpg"
+        _VALID_EXTS = {"jpg", "jpeg", "png", "webp", "gif"}
+        _raw_ext = chosen_image_url.split("?")[0].rsplit(".", 1)[-1].lower()
+        ext = _raw_ext if _raw_ext in _VALID_EXTS else "jpg"
         img_filename = f"autofill_{safe_word}.{ext}"
         stored_img = fetcher.download_media(chosen_image_url, img_filename)
         if stored_img:
             img_html = (
                 f'<img src="{stored_img}" '
-                'style="max-width:300px; border-radius:4px; margin-top:6px;">'
+                'style="max-width:150px; border-radius:4px; margin-top:6px;">'
             )
 
     # ---- Step 5: Fill note fields ------------------------------------------
@@ -171,8 +173,11 @@ def _on_data_ready(
             return
         note.fields[idx] = value
 
-    # Definition field
-    set_field(FIELD_DEFINITION, chosen_def.text)
+    # Definition field — text, optionally followed by the chosen image
+    definition_html = chosen_def.text
+    if img_html:
+        definition_html += "<br>" + img_html
+    set_field(FIELD_DEFINITION, definition_html)
 
     # Examples field — cloze-formatted HTML
     examples_html = formatter.build_examples_html(
@@ -189,22 +194,36 @@ def _on_data_ready(
     elif result.translations:
         set_field(FIELD_TRANSLATION, result.translations[0])
 
-    # Expression field — append audio tags (and optionally an image) after the word
-    if audio_tags or img_html:
+    # Expression field — append audio tags after the word
+    new_expr: str | None = None
+    if audio_tags:
         current = note.fields[FIELD_EXPRESSION]
         # Strip any existing sound tags so we don't duplicate them on re-run
         clean = re.sub(r"\[sound:[^\]]+\]", "", current).rstrip()
-        suffix = (" " + audio_tags) if audio_tags else ""
-        if img_html:
-            suffix += "<br>" + img_html
-        note.fields[FIELD_EXPRESSION] = clean + suffix
+        new_expr = clean + " " + audio_tags
+        note.fields[FIELD_EXPRESSION] = new_expr
 
     # ---- Step 6: Persist and refresh ---------------------------------------
     # note.id == 0 means this is a new note in the Add dialog (not yet in DB).
     # In that case just refresh the editor — the note is saved when the user clicks Add.
     if note.id:
         mw.col.update_note(note)
+
     editor.loadNote()
+
+    # Also push the Definition and Expression fields directly into the webview DOM
+    # to avoid any round-trip encoding issues (e.g. with <img> tags).
+    import json as _json
+    editor.web.eval(
+        f"document.getElementById('f{FIELD_DEFINITION}').innerHTML = "
+        f"{_json.dumps(definition_html)};"
+    )
+    if new_expr is not None:
+        editor.web.eval(
+            f"document.getElementById('f{FIELD_EXPRESSION}').innerHTML = "
+            f"{_json.dumps(new_expr)};"
+        )
+
     tooltip(f"Auto-filled <b>{word}</b> successfully!")
 
 

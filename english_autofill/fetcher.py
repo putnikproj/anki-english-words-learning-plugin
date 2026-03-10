@@ -67,6 +67,10 @@ def _get_json(url: str, headers: Optional[dict] = None, timeout: int = 10):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (429, 403):
+            return None   # rate-limited — caller returns [] silently, no dialog shown
+        return None
     except Exception:
         return None
 
@@ -100,30 +104,29 @@ def download_bytes(url: str, timeout: int = 10) -> Optional[bytes]:
 
 
 def download_media(url: str, desired_name: str) -> Optional[str]:
-    """Download a media file and store it in Anki's media folder.
+    """Download a media file and write it directly to Anki's media folder.
 
-    Returns the stored filename on success, None on failure.
+    Returns the filename on success, None on failure.
     mw import is deferred so this module can be loaded outside Anki for tests.
     """
     import os
-    import tempfile
 
     data = download_bytes(url)
     if not data:
         return None
     try:
         from aqt import mw  # noqa: PLC0415
-        # Write data to a temp dir under the desired filename so add_file() stores
-        # it with the right name (add_file uses the file's basename).
-        tmp_dir = tempfile.mkdtemp()
-        tmp_path = os.path.join(tmp_dir, desired_name)
-        with open(tmp_path, "wb") as f:
+        media_dir = mw.col.media.dir()
+        dest = os.path.join(media_dir, desired_name)
+        with open(dest, "wb") as f:
             f.write(data)
-        stored = mw.col.media.add_file(tmp_path)
-        os.unlink(tmp_path)
-        os.rmdir(tmp_dir)
-        return stored
-    except Exception:
+        return desired_name
+    except Exception as exc:
+        try:
+            from aqt.utils import tooltip as _tooltip  # noqa: PLC0415
+            _tooltip(f"[autofill] media write failed: {exc}")
+        except Exception:
+            pass
         return None
 
 
