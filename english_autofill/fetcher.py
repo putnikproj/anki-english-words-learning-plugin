@@ -382,56 +382,63 @@ def fetch_puzzle_video(word: str, config: dict) -> Optional[VideoClip]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def fetch_all(word: str, config: dict) -> FetchResult:
-    """Fetch all data for a word. Runs in a background thread (no Qt calls)."""
+def fetch_all(
+    word: str,
+    config: dict,
+    *,
+    cambridge: bool = True,
+    images: bool = True,
+    translation: bool = True,
+    video: bool = True,
+) -> FetchResult:
+    """Fetch data for a word. Pass False flags to skip unneeded sources."""
     result = FetchResult(word=word)
 
     # --- Cambridge: definitions, examples, audio ---
-    defs, prons, error = fetch_cambridge(word)
-    result.definitions = defs
-    result.pronunciations = prons
-    if error and not defs:
-        result.error = error
-        return result
+    if cambridge:
+        defs, prons, error = fetch_cambridge(word)
+        result.definitions = defs
+        result.pronunciations = prons
+        if error and not defs:
+            result.error = error
+            return result
 
     # --- Translation: Yandex Dictionary (multiple) or DeepL (single fallback) ---
-    yandex_key = config.get("yandex_dict_api_key", "").strip()
-    deepl_key = config.get("deepl_api_key", "").strip()
-    deepl_free = config.get("deepl_free_tier", True)
+    if translation:
+        yandex_key = config.get("yandex_dict_api_key", "").strip()
+        deepl_key = config.get("deepl_api_key", "").strip()
+        deepl_free = config.get("deepl_free_tier", True)
 
-    if yandex_key:
-        result.translations = fetch_translations_yandex(word, yandex_key)
-
-    # Fall back to DeepL if Yandex returned nothing
-    if not result.translations and deepl_key:
-        single = fetch_translation_deepl(word, deepl_key, deepl_free)
-        if single:
-            result.translations = [single]
+        if yandex_key:
+            result.translations = fetch_translations_yandex(word, yandex_key)
+        if not result.translations and deepl_key:
+            single = fetch_translation_deepl(word, deepl_key, deepl_free)
+            if single:
+                result.translations = [single]
 
     # --- Images ---
-    provider = config.get("image_provider", "unsplash")
-    unsplash_key = config.get("unsplash_access_key", "").strip()
-    pixabay_key = config.get("pixabay_api_key", "").strip()
+    if images:
+        provider = config.get("image_provider", "unsplash")
+        unsplash_key = config.get("unsplash_access_key", "").strip()
+        pixabay_key = config.get("pixabay_api_key", "").strip()
 
-    images: list[ImageResult] = []
-    if provider == "unsplash" and unsplash_key:
-        images = fetch_images_unsplash(word, unsplash_key)
-    elif provider == "pixabay" and pixabay_key:
-        images = fetch_images_pixabay(word, pixabay_key)
-    elif unsplash_key:
-        images = fetch_images_unsplash(word, unsplash_key)
-    elif pixabay_key:
-        images = fetch_images_pixabay(word, pixabay_key)
+        imgs: list[ImageResult] = []
+        if provider == "unsplash" and unsplash_key:
+            imgs = fetch_images_unsplash(word, unsplash_key)
+        elif provider == "pixabay" and pixabay_key:
+            imgs = fetch_images_pixabay(word, pixabay_key)
+        elif unsplash_key:
+            imgs = fetch_images_unsplash(word, unsplash_key)
+        elif pixabay_key:
+            imgs = fetch_images_pixabay(word, pixabay_key)
 
-    # Pre-download thumbnails so the picker dialog opens instantly
-    for img in images[:9]:
-        if img.thumbnail_url:
-            img.thumbnail_data = download_bytes(img.thumbnail_url, timeout=8)
-
-    result.images = images
+        for img in imgs[:9]:
+            if img.thumbnail_url:
+                img.thumbnail_data = download_bytes(img.thumbnail_url, timeout=8)
+        result.images = imgs
 
     # --- Video clip from puzzle-english.com ---
-    if config.get("puzzle_english_video", False):
+    if video and config.get("puzzle_english_video", False):
         result.video_clip = fetch_puzzle_video(word, config)
 
     return result

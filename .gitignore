@@ -2,3 +2,4 @@ meta.json
 __pycache__/
 *.pyc
 .browser_context/
+.DS_Store

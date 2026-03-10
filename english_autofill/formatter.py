@@ -110,19 +110,25 @@ def build_examples_html(
     word: str,
     cloze_num: int = 1,
     max_n: int = 3,
+    first_sentence: str = "",
 ) -> str:
     """Build the ``<ul><li>…</li></ul>`` cloze block for the Examples field.
 
-    Returns an empty string if *examples* is empty.
+    If *first_sentence* is given it is prepended as the first item (does not
+    count toward *max_n*, so Cambridge examples are not displaced).
+    Returns an empty string when there is nothing to show.
     """
-    if not examples:
-        return ""
     forms = find_word_forms(word)
     items = []
+
+    if first_sentence.strip():
+        items.append(f"<li>{wrap_cloze(first_sentence.strip(), forms, cloze_num)}</li>")
+
     for ex in examples[:max_n]:
         clean = ex.strip()
         if clean:
             items.append(f"<li>{wrap_cloze(clean, forms, cloze_num)}</li>")
+
     if not items:
         return ""
     return "<ul>" + "".join(items) + "</ul>"
