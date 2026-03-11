@@ -414,6 +414,7 @@ def fetch_all(
             result.error = error
             return result
 
+
     # --- Translation: Yandex Dictionary (multiple) or DeepL (single fallback) ---
     if translation:
         yandex_key = config.get("yandex_dict_api_key", "").strip()

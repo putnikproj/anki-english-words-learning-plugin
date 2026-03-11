@@ -211,13 +211,65 @@ def _apply_video(editor: Editor, note, word: str, result: FetchResult, config: d
 
 _ACTIONS_ALL = frozenset({"cambridge", "image", "translation", "video"})
 
+# Order for "Fill All" sequential run — each step is its own fetch+apply cycle.
+_ALL_SEQUENCE = [
+    frozenset({"cambridge"}),
+    frozenset({"image"}),
+    frozenset({"translation"}),
+    frozenset({"video"}),
+]
+
 _FETCH_FLAGS = {
     "cambridge":   dict(cambridge=True,  images=False, translation=False, video=False),
     "image":       dict(cambridge=False, images=True,  translation=False, video=False),
     "translation": dict(cambridge=False, images=False, translation=True,  video=False),
     "video":       dict(cambridge=False, images=False, translation=False, video=True),
-    "all":         dict(cambridge=True,  images=True,  translation=True,  video=True),
 }
+
+
+def _start_fetch(editor: Editor, word: str, config: dict, actions: frozenset,
+                 on_done=None) -> None:
+    """Launch a background fetch for *actions* and apply results on the main thread.
+
+    *on_done* is called (no arguments) after the apply step completes, allowing
+    callers to chain the next action.
+    """
+    flags = dict(cambridge=False, images=False, translation=False, video=False)
+    for action in actions:
+        for k, v in _FETCH_FLAGS.get(action, {}).items():
+            flags[k] = flags[k] or v
+
+    def do_fetch(col):
+        try:
+            return fetcher.fetch_all(word, config, **flags)
+        except Exception as exc:  # noqa: BLE001
+            return FetchResult(word=word, error=str(exc))
+
+    def on_success(result: FetchResult) -> None:
+        _on_data_ready(editor, word, result, config, actions)
+        if on_done:
+            on_done()
+
+    def on_failure(exc: Exception) -> None:
+        showWarning(f"Auto-fill failed:\n{exc}")
+
+    (
+        QueryOp(parent=editor.parentWindow, op=do_fetch, success=on_success)
+        .failure(on_failure)
+        .without_collection()
+        .with_progress("Fetching…")
+        .run_in_background()
+    )
+
+
+def _run_sequence(editor: Editor, word: str, config: dict,
+                  queue: list) -> None:
+    """Run a list of single-action sets one after another."""
+    if not queue:
+        return
+    current, remaining = queue[0], queue[1:]
+    _start_fetch(editor, word, config, current,
+                 on_done=lambda: _run_sequence(editor, word, config, remaining))
 
 
 def _on_action_button(editor: Editor, actions: frozenset) -> None:
@@ -244,36 +296,11 @@ def _on_action_button(editor: Editor, actions: frozenset) -> None:
         )
         return
 
-    # Determine which fetch flags to use
     if actions == _ACTIONS_ALL:
-        flags = _FETCH_FLAGS["all"]
+        # Run each action independently in sequence — same as pressing each button in turn.
+        _run_sequence(editor, word, config, _ALL_SEQUENCE)
     else:
-        # Merge flags for each action in the set
-        flags = dict(cambridge=False, images=False, translation=False, video=False)
-        for action in actions:
-            for k, v in _FETCH_FLAGS.get(action, {}).items():
-                flags[k] = flags[k] or v
-
-    def do_fetch(col):
-        try:
-            return fetcher.fetch_all(word, config, **flags)
-        except Exception as exc:  # noqa: BLE001
-            return FetchResult(word=word, error=str(exc))
-
-    def on_success(result: FetchResult) -> None:
-        _on_data_ready(editor, word, result, config, actions)
-
-    def on_failure(exc: Exception) -> None:
-        showWarning(f"Auto-fill failed:\n{exc}")
-
-    label = "Fetching…"
-    (
-        QueryOp(parent=editor.parentWindow, op=do_fetch, success=on_success)
-        .failure(on_failure)
-        .without_collection()
-        .with_progress(label)
-        .run_in_background()
-    )
+        _start_fetch(editor, word, config, actions)
 
 
 # ---------------------------------------------------------------------------
