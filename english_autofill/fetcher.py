@@ -67,6 +67,7 @@ class FetchResult:
     translations: list[str] = field(default_factory=list)   # Russian options, pick one
     images: list[ImageResult] = field(default_factory=list)
     video_clip: Optional[VideoClip] = None
+    video_error: Optional[str] = None   # human-readable reason when video_clip is None
     error: Optional[str] = None
 
 
@@ -350,7 +351,13 @@ def fetch_puzzle_video(word: str, config: dict) -> Optional[VideoClip]:
 
     python_exe = _find_python_with_playwright(config)
     if not python_exe:
-        return None
+        raise RuntimeError(
+            "Playwright not found. To set up:\n"
+            "  pip3 install playwright\n"
+            "  python3 -m playwright install chromium\n\n"
+            "If Python is in a non-standard location, set 'python_executable' "
+            "in the add-on config (Tools → Add-ons → Config)."
+        )
 
     context_dir = _browser_context_dir()
     os.makedirs(context_dir, exist_ok=True)
@@ -365,15 +372,19 @@ def fetch_puzzle_video(word: str, config: dict) -> Optional[VideoClip]:
             timeout=120,   # login flow may take a while
         )
         if proc.returncode != 0:
-            return None
+            raise RuntimeError(f"puzzle_scraper exited with code {proc.returncode}:\n{proc.stderr[:300]}")
         data = json.loads(proc.stdout.strip())
-        if "error" in data or "url" not in data:
+        if "error" in data:
+            raise RuntimeError(f"puzzle-english: {data['error']}")
+        if "url" not in data:
             return None
         return VideoClip(
             url=data["url"],
             sentence_en=data.get("sentence_en", ""),
             sentence_ru=data.get("sentence_ru", ""),
         )
+    except RuntimeError:
+        raise
     except Exception:
         return None
 
@@ -439,6 +450,11 @@ def fetch_all(
 
     # --- Video clip from puzzle-english.com ---
     if video and config.get("puzzle_english_video", False):
-        result.video_clip = fetch_puzzle_video(word, config)
+        try:
+            result.video_clip = fetch_puzzle_video(word, config)
+            if result.video_clip is None:
+                result.video_error = "No clip found for this word on puzzle-english.com."
+        except RuntimeError as e:
+            result.video_error = str(e)
 
     return result

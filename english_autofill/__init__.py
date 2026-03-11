@@ -171,7 +171,15 @@ def _apply_translation(editor: Editor, note, word: str, result: FetchResult, con
 def _apply_video(editor: Editor, note, word: str, result: FetchResult, config: dict) -> None:
     """Download video clip → [sound:] tag in Expression; prepend sentence to Examples."""
     if not result.video_clip:
-        tooltip("No video clip found for this word.")
+        if result.video_error:
+            showWarning(result.video_error)
+        elif not config.get("puzzle_english_video", False):
+            showWarning(
+                "Puzzle English video is disabled.\n"
+                "Enable it in Tools → Add-ons → Config → puzzle_english_video: true"
+            )
+        else:
+            tooltip("No video clip found for this word.")
         return
 
     sw = _safe_word(word)
